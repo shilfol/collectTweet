@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
 	//"net/url"
 )
 
@@ -43,6 +44,20 @@ func readKeys() {
 	AccessTokenSecret = sc.Text()
 }
 
+func textRegExp(rawstr string) (name, plat string) {
+	regPlat := regexp.MustCompile(`【(アイドルマスター シンデレラガールズ[　スターライトステージ]*)】[\s\S]+`)
+	regName := regexp.MustCompile(`[\s\S]+[\r\n|\n|\r\s](\S+)に投票したよ!![\s\S]+`)
+
+	platSlice := regPlat.FindStringSubmatch(rawstr)
+	nameSlice := regName.FindStringSubmatch(rawstr)
+
+	if len(platSlice) <= 0 || len(nameSlice) <= 0 {
+		return "", ""
+	}
+
+	return nameSlice[1], platSlice[1]
+}
+
 func main() {
 	readKeys()
 
@@ -53,15 +68,7 @@ func main() {
 
 	accessToken := &oauth.AccessToken{Token: AccessToken, Secret: AccessTokenSecret}
 
-	/*
-		client, err := consumer.MakeHttpClient(accessToken)
-		if err != nil {
-			log.Fatal(err, client)
-		}
-	*/
-
 	endPointRaw := "https://api.twitter.com/1.1/search/universal.json"
-	//endPoint := (&url.URL{Path: endPointRaw}).String()
 	queryRaw := "【アイドルマスター シンデレラガールズ】 -RT max_id:990305126484033536"
 	params := map[string]string{"q": queryRaw, "modules": "status", "count": "100"}
 
@@ -92,9 +99,12 @@ func main() {
 		data := out.(map[string]interface{})["data"]
 		text := data.(map[string]interface{})
 		user := text["user"].(map[string]interface{})
-		fmt.Println(text["text"], text["id_str"], user["screen_name"])
-		fmt.Println()
-		count++
+		plat, name := textRegExp(text["text"].(string))
+		if plat != "" && name != "" {
+			fmt.Println(plat, name, user["screen_name"], text["id_str"])
+			fmt.Println()
+			count++
+		}
 	}
 
 	fmt.Println(count)
