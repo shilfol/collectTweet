@@ -2,14 +2,17 @@ package main
 
 import (
 	"bufio"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"github.com/mrjones/oauth"
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 	//"net/url"
 )
@@ -60,7 +63,8 @@ func textRegExp(rawstr string) (name, plat string) {
 	return nameSlice[1], platSlice[1]
 }
 
-func processData(jsonPointer interface{}) int {
+func processData(jsonPointer interface{}) (int, [][]string) {
+	outdatas := [][]string{}
 	datas := jsonPointer.(map[string]interface{})["modules"].([]interface{})
 
 	lastid := -1
@@ -76,9 +80,11 @@ func processData(jsonPointer interface{}) int {
 		if plat != "" && name != "" {
 			fmt.Println(createTime, plat, name, user["screen_name"], text["id_str"])
 			lastid, _ = strconv.Atoi(text["id_str"].(string))
+			outdata := []string{createTime, plat, name, user["screen_name"].(string), text["id_str"].(string)}
+			outdatas = append(outdatas, outdata)
 		}
 	}
-	return lastid
+	return lastid, outdatas
 }
 
 func main() {
@@ -91,9 +97,14 @@ func main() {
 
 	accessToken := &oauth.AccessToken{Token: AccessToken, Secret: AccessTokenSecret}
 
-	// FIXME
-	queryID := 990305126484033536
+	out, err := exec.Command("tail", "-1", "data.csv").Output()
+	outslice := strings.Split(string(out), ",")
+	lastid, _ := strconv.Atoi(strings.TrimRight(outslice[len(outslice)-1], "\n"))
+	queryID := lastid - 1
+
 	endPointRaw := "https://api.twitter.com/1.1/search/universal.json"
+
+	outdatas := [][]string{}
 
 	for i := 0; i < 170; i++ {
 		queryRaw := "【アイドルマスター シンデレラガールズ】 -RT max_id:" + fmt.Sprint(queryID)
@@ -121,17 +132,33 @@ func main() {
 			log.Fatal(err)
 		}
 
-		if retid := processData(jsonPointer); retid < 0 {
+		if retid, retdatas := processData(jsonPointer); retid < 0 {
+			fmt.Println("no id")
 			break
 		} else {
 			queryID = retid - 1
+			outdatas = append(outdatas, retdatas...)
 		}
 
 		response.Body.Close()
 
 		if remCount, _ := strconv.Atoi(response.Header["X-Rate-Limit-Remaining"][0]); remCount <= 0 {
+			fmt.Println("no remain count")
 			break
+		} else {
+			fmt.Println("remain: ", remCount)
 		}
+	}
+
+	writefile, err := os.OpenFile(os.Args[2], os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	defer writefile.Close()
+
+	writer := csv.NewWriter(writefile)
+	if err := writer.WriteAll(outdatas); err != nil {
+		log.Fatal(err)
 	}
 
 }
