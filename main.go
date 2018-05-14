@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"time"
 	//"net/url"
 )
 
@@ -45,7 +46,7 @@ func readKeys() {
 }
 
 func textRegExp(rawstr string) (name, plat string) {
-	regPlat := regexp.MustCompile(`【(アイドルマスター シンデレラガールズ[　スターライトステージ]*)】[\s\S]+`)
+	regPlat := regexp.MustCompile(`[\s\S]*【(アイドルマスター シンデレラガールズ[　スターライトステージ]*)】[\s\S]+`)
 	regName := regexp.MustCompile(`[\s\S]+[\r\n|\n|\r\s](\S+)に投票したよ!![\s\S]+`)
 
 	platSlice := regPlat.FindStringSubmatch(rawstr)
@@ -99,9 +100,12 @@ func main() {
 		data := out.(map[string]interface{})["data"]
 		text := data.(map[string]interface{})
 		user := text["user"].(map[string]interface{})
+
+		createTimeRaw, _ := time.Parse("Mon Jan 2 15:04:05 -0700 2006", text["created_at"].(string))
+		createTime := createTimeRaw.Add(9*time.Hour).Format("2006-01-02_15:04:05") + "_JST"
 		plat, name := textRegExp(text["text"].(string))
 		if plat != "" && name != "" {
-			fmt.Println(plat, name, user["screen_name"], text["id_str"])
+			fmt.Println(createTime, createTimeRaw, plat, name, user["screen_name"], text["id_str"])
 			fmt.Println()
 			count++
 		}
