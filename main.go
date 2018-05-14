@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 	//"net/url"
 )
@@ -59,42 +60,10 @@ func textRegExp(rawstr string) (name, plat string) {
 	return nameSlice[1], platSlice[1]
 }
 
-func main() {
-	readKeys()
+func processData(jsonPointer interface{}) int {
+	datas := jsonPointer.(map[string]interface{})["modules"].([]interface{})
 
-	consumer := oauth.NewConsumer(ConsumerKey, ConsumerSecret, oauth.ServiceProvider{})
-
-	// for debug
-	consumer.Debug(true)
-
-	accessToken := &oauth.AccessToken{Token: AccessToken, Secret: AccessTokenSecret}
-
-	endPointRaw := "https://api.twitter.com/1.1/search/universal.json"
-	queryRaw := "【アイドルマスター シンデレラガールズ】 -RT max_id:990305126484033536"
-	params := map[string]string{"q": queryRaw, "modules": "status", "count": "100"}
-
-	response, err := consumer.Get(endPointRaw, params, accessToken)
-	if err != nil {
-		log.Fatal(err, response)
-	}
-	defer response.Body.Close()
-	fmt.Println(response.StatusCode, response.Status)
-
-	responseBody, err := ioutil.ReadAll(response.Body)
-
-	if err != nil {
-		log.Fatal(err)
-
-	}
-
-	var testjson interface{}
-	if err := json.Unmarshal(responseBody, &testjson); err != nil {
-		log.Fatal(err)
-	}
-
-	datas := testjson.(map[string]interface{})["modules"].([]interface{})
-
-	count := 0
+	lastid := -1
 	for _, v := range datas {
 		out := v.(map[string]interface{})["status"]
 		data := out.(map[string]interface{})["data"]
@@ -105,12 +74,64 @@ func main() {
 		createTime := createTimeRaw.Add(9*time.Hour).Format("2006-01-02_15:04:05") + "_JST"
 		plat, name := textRegExp(text["text"].(string))
 		if plat != "" && name != "" {
-			fmt.Println(createTime, createTimeRaw, plat, name, user["screen_name"], text["id_str"])
-			fmt.Println()
-			count++
+			fmt.Println(createTime, plat, name, user["screen_name"], text["id_str"])
+			lastid, _ = strconv.Atoi(text["id_str"].(string))
 		}
 	}
+	return lastid
+}
 
-	fmt.Println(count)
+func main() {
+	readKeys()
+
+	consumer := oauth.NewConsumer(ConsumerKey, ConsumerSecret, oauth.ServiceProvider{})
+
+	// for debug
+	consumer.Debug(false)
+
+	accessToken := &oauth.AccessToken{Token: AccessToken, Secret: AccessTokenSecret}
+
+	// FIXME
+	queryID := 990305126484033536
+	endPointRaw := "https://api.twitter.com/1.1/search/universal.json"
+
+	for i := 0; i < 170; i++ {
+		queryRaw := "【アイドルマスター シンデレラガールズ】 -RT max_id:" + fmt.Sprint(queryID)
+		params := map[string]string{"q": queryRaw, "modules": "status", "count": "100"}
+
+		response, err := consumer.Get(endPointRaw, params, accessToken)
+		if err != nil {
+			log.Fatal(err, response)
+		}
+
+		if response.StatusCode != 200 {
+			log.Fatal(response.Status)
+			break
+		}
+
+		responseBody, err := ioutil.ReadAll(response.Body)
+
+		if err != nil {
+			log.Fatal(err)
+
+		}
+
+		var jsonPointer interface{}
+		if err := json.Unmarshal(responseBody, &jsonPointer); err != nil {
+			log.Fatal(err)
+		}
+
+		if retid := processData(jsonPointer); retid < 0 {
+			break
+		} else {
+			queryID = retid - 1
+		}
+
+		response.Body.Close()
+
+		if remCount, _ := strconv.Atoi(response.Header["X-Rate-Limit-Remaining"][0]); remCount <= 0 {
+			break
+		}
+	}
 
 }
